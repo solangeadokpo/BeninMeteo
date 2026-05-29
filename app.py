@@ -648,3 +648,249 @@ function closePanel() {{
 """
 
 st.components.v1.html(html, height=800, scrolling=False)
+
+# ============================================================
+# VÉRIFICATION D'INFORMATION
+# ============================================================
+
+st.markdown("---")
+st.markdown(
+    f"<div style='font-size:14px;font-weight:600;"
+    f"color:{txt};margin-bottom:4px;'>"
+    f"🔍 Vérifier une information</div>",
+    unsafe_allow_html=True)
+st.markdown(
+    f"<div style='font-size:12px;color:{txt2};"
+    f"margin-bottom:12px;'>"
+    f"Vous avez entendu quelque chose ? "
+    f"Vérifiez si les médias l'ont rapporté.</div>",
+    unsafe_allow_html=True)
+
+rumeur = st.text_input(
+    "",
+    placeholder="Ex: Il y a eu une attaque à Kandi cette semaine...",
+    label_visibility="collapsed"
+)
+
+if rumeur and len(rumeur) > 5:
+
+    # Mots-clés à chercher
+    mots = [m.lower() for m in rumeur.split()
+            if len(m) > 3 and m.lower() not in
+            ["dans","cette","semaine","il","ya","une","des","les","que"]]
+
+    # Chercher dans les données GDELT
+    resultats = df[
+        df["ActionGeo_FullName"].str.lower().str.contains(
+            "|".join(mots), na=False) |
+        df["Actor1Name"].str.lower().str.contains(
+            "|".join(mots), na=False) |
+        df["SOURCEURL"].str.lower().str.contains(
+            "|".join(mots), na=False)
+    ].nlargest(5, "NumArticles")
+
+    if len(resultats) >= 3:
+        st.markdown(f"""
+        <div style='background:#0A2A0A;border:1px solid #27AE60;
+          border-radius:10px;padding:14px 16px;margin-bottom:10px;'>
+          <div style='color:#27AE60;font-weight:600;
+            font-size:14px;margin-bottom:6px;'>
+            ✅ Information confirmée
+          </div>
+          <div style='color:{txt};font-size:13px;line-height:1.5;'>
+            {len(resultats)} source(s) médiatique(s) ont rapporté
+            des événements liés à cette information.
+            Voici les sources vérifiées :
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+        for _, row in resultats.iterrows():
+            url = str(row.get("SOURCEURL",""))
+            src = url.split("/")[2].replace("www.","") \
+                  if url.startswith("http") else "Source inconnue"
+            try:
+                date = pd.to_datetime(
+                    row["SQLDATE"]).strftime("%d %b %Y")
+            except:
+                date = ""
+            code = str(row.get("EventRootCode","")).strip()
+            em, tp, _ = CAMEO.get(
+                code, ("📌","Événement",""))
+            st.markdown(f"""
+            <div style='background:{c2};border-radius:8px;
+              padding:9px 12px;margin-bottom:6px;
+              display:flex;justify-content:space-between;
+              align-items:center;'>
+              <div>
+                <span style='font-size:12px;
+                  color:{txt};font-weight:500;'>
+                  {em} {tp} · {src}
+                </span><br>
+                <span style='font-size:11px;color:{txt2};'>
+                  {date}
+                </span>
+              </div>
+              {"<a href='" + url + "' target='_blank' style='font-size:11px;color:#4A9EFF;text-decoration:none;'>Lire →</a>" if url.startswith("http") else ""}
+            </div>""", unsafe_allow_html=True)
+
+    elif len(resultats) == 1 or len(resultats) == 2:
+        st.markdown(f"""
+        <div style='background:#1A1A05;border:1px solid #E67E22;
+          border-radius:10px;padding:14px 16px;margin-bottom:10px;'>
+          <div style='color:#E67E22;font-weight:600;
+            font-size:14px;margin-bottom:6px;'>
+            ⚠️ Partiellement confirmé
+          </div>
+          <div style='color:{txt};font-size:13px;line-height:1.5;'>
+            {len(resultats)} source(s) seulement ont rapporté
+            quelque chose de similaire. Soyez prudent avant
+            de partager cette information.
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+    else:
+        st.markdown(f"""
+        <div style='background:#1A0505;border:1px solid #C0392B;
+          border-radius:10px;padding:14px 16px;'>
+          <div style='color:#C0392B;font-weight:600;
+            font-size:14px;margin-bottom:6px;'>
+            ❌ Non confirmé dans les médias
+          </div>
+          <div style='color:{txt};font-size:13px;line-height:1.5;'>
+            Aucun média international n'a rapporté cet événement
+            dans nos données. Cela ne veut pas dire que c'est faux
+            — mais vérifiez avant de partager.
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+        # ============================================================
+# RAPPORT AUDIO
+# ============================================================
+from gtts import gTTS
+import io
+import base64
+
+st.markdown("---")
+st.markdown(
+    f"<div style='font-size:14px;font-weight:600;"
+    f"color:{txt};margin-bottom:4px;'>"
+    f"🎙️ Rapport audio de la semaine</div>",
+    unsafe_allow_html=True)
+st.markdown(
+    f"<div style='font-size:12px;color:{txt2};"
+    f"margin-bottom:12px;'>"
+    f"Écoutez ce qui s'est passé au Bénin "
+    f"cette semaine — en français.</div>",
+    unsafe_allow_html=True)
+
+@st.cache_data(ttl=3600)
+def generer_resume_semaine(_df):
+    """Génère un résumé texte de la semaine depuis les données."""
+
+    # Top zones actives
+    zones_actives = []
+    for zone in ZONES_DEF:
+        zdf = _df[_df["ActionGeo_FullName"].str.contains(
+            zone, na=False, case=False)]
+        s = score_zone(zdf)
+        if s >= 4:
+            em, _, lbl, _ = niveau(s)
+            zones_actives.append(f"{zone} ({lbl.lower()})")
+
+    # Top événements de la semaine
+    top_evts = _df.nlargest(3, "NumArticles")
+    evenements_txt = []
+    for _, row in top_evts.iterrows():
+        code = str(row.get("EventRootCode","")).strip()
+        _, tp, desc = CAMEO.get(
+            code, ("","Événement","Un événement a été signalé."))
+        zone_evt = str(row.get("ActionGeo_FullName","le Bénin"))
+        evenements_txt.append(f"{tp} à {zone_evt} : {desc}")
+
+    # Construire le texte
+    zones_str = (", ".join(zones_actives)
+                 if zones_actives
+                 else "aucune zone particulière")
+
+    evts_str = " / ".join(evenements_txt[:2]) if evenements_txt else ""
+
+    texte = (
+        f"Bonjour. Voici le rapport BENIN WATCH "
+        f"du {datetime.now().strftime('%d %B %Y')}. "
+        f"Zones à surveiller cette semaine : {zones_str}. "
+        f"Principaux événements : {evts_str}. "
+        f"Pour plus d'informations, consultez "
+        f"BENIN WATCH sur votre navigateur. "
+        f"Restez informé, restez en sécurité."
+    )
+    return texte
+
+@st.cache_data(ttl=3600)
+def texte_vers_audio(texte, langue="fr"):
+    """Convertit le texte en audio MP3."""
+    try:
+        tts = gTTS(text=texte, lang=langue, slow=False)
+        buf = io.BytesIO()
+        tts.write_to_fp(buf)
+        buf.seek(0)
+        return buf.read()
+    except Exception as e:
+        return None
+
+col_lang1, col_lang2 = st.columns([3,1])
+
+with col_lang1:
+    langue_choisie = st.selectbox(
+        "Langue du rapport",
+        options=["Français","Yoruba","Hausa"],
+        index=0,
+        label_visibility="collapsed"
+    )
+
+with col_lang2:
+    generer = st.button("🎙️ Générer", use_container_width=True)
+
+langue_codes = {
+    "Français": "fr",
+    "Yoruba":   "yo",
+    "Hausa":    "ha",
+}
+
+if generer:
+    with st.spinner("Génération du rapport audio..."):
+        texte = generer_resume_semaine(df)
+        code_langue = langue_codes.get(langue_choisie, "fr")
+        audio_bytes = texte_vers_audio(texte, code_langue)
+
+    if audio_bytes:
+        # Afficher le lecteur audio
+        st.audio(audio_bytes, format="audio/mp3")
+
+        # Téléchargement
+        st.download_button(
+            label="⬇️ Télécharger le rapport MP3",
+            data=audio_bytes,
+            file_name=f"benin_watch_{datetime.now().strftime('%Y%m%d')}.mp3",
+            mime="audio/mp3",
+            use_container_width=True
+        )
+
+        # Texte du rapport affiché
+        with st.expander("📄 Voir le texte du rapport"):
+            st.markdown(
+                f"<div style='font-size:13px;color:{txt};"
+                f"line-height:1.7;'>{texte}</div>",
+                unsafe_allow_html=True)
+
+        st.markdown(
+            f"<div style='font-size:11px;color:{txt2};"
+            f"margin-top:8px;'>"
+            f"💡 Partagez ce fichier audio directement "
+            f"sur WhatsApp pour informer vos proches.</div>",
+            unsafe_allow_html=True)
+    else:
+        st.markdown(
+            f"<div style='color:#E67E22;font-size:12px;'>"
+            f"⚠️ Génération audio indisponible. "
+            f"Vérifiez votre connexion internet.</div>",
+            unsafe_allow_html=True)
