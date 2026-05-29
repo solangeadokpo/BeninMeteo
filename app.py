@@ -1,15 +1,12 @@
 # ============================================================
-# BENIN WATCH — app.py — Carte plein écran vraie
+# BENIN WATCH — app.py — Version HTML/JS Pure
 # ============================================================
 
 import streamlit as st
 import pandas as pd
-import folium
-from folium.plugins import HeatMap
-from streamlit_folium import st_folium
 from datetime import datetime
 from collections import Counter
-import random
+import json
 
 st.set_page_config(
     page_title="BENIN WATCH",
@@ -23,328 +20,39 @@ if "dark_mode" not in st.session_state:
 if "zone_active" not in st.session_state:
     st.session_state.zone_active = None
 
-def toggle_mode():
-    st.session_state.dark_mode = not st.session_state.dark_mode
-
-D    = st.session_state.dark_mode
-BG   = "#080810" if D else "#F0F0F8"
-CARD = "#0F0F1A" if D else "#FFFFFF"
-C2   = "#13131A" if D else "#F5F5FA"
-BRD  = "#1A1A30" if D else "#DDDDEE"
-TXT  = "#CCCCDD" if D else "#1A1A2E"
-TXT2 = "#7777AA" if D else "#666688"
-TILE = "CartoDB dark_matter" if D else "CartoDB positron"
-
-# CSS — tout en fixed, zéro padding Streamlit
-st.markdown(f"""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
-*, *::before, *::after {{
-    font-family: 'Inter', sans-serif;
-    box-sizing: border-box;
-}}
-
-/* ── Supprime TOUT l'habillage Streamlit ── */
-.stApp {{ background: {BG}; overflow: hidden; }}
-.stApp > header {{ display: none !important; }}
-#MainMenu, footer, .stDeployButton {{ display: none !important; }}
-.block-container {{
-    padding: 0 !important;
-    margin: 0 !important;
-    max-width: 100vw !important;
-}}
-section[data-testid="stSidebar"] {{ display: none !important; }}
-div[data-testid="stVerticalBlock"] {{ gap: 0 !important; }}
-div[data-testid="stHorizontalBlock"] {{ gap: 0 !important; }}
-.element-container {{ margin: 0 !important; padding: 0 !important; }}
-div[data-testid="stToolbar"] {{ display: none !important; }}
-
-/* ── Header fixe ── */
-#bw-header {{
-    position: fixed;
-    top: 0; left: 0; right: 0;
-    height: 48px;
-    background: {CARD}EE;
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    border-bottom: 1px solid {BRD};
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 16px;
-    z-index: 9999;
-}}
-.bw-logo {{
-    font-size: 14px;
-    font-weight: 700;
-    letter-spacing: 3px;
-}}
-.bw-logo .r {{ color: #C0392B; }}
-.bw-logo .w {{ color: {TXT}; }}
-.bw-live {{
-    font-size: 11px;
-    color: {TXT2};
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}}
-.dot {{
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    background: #27AE60;
-    animation: bl 1.5s infinite;
-    flex-shrink: 0;
-}}
-@keyframes bl {{
-    0%, 100% {{ opacity: 1; }}
-    50% {{ opacity: 0.2; }}
-}}
-
-/* ── Carte couvre tout sauf le header ── */
-#bw-map {{
-    position: fixed;
-    top: 48px; left: 0; right: 0; bottom: 0;
-    z-index: 1;
-}}
-#bw-map iframe {{
-    width: 100% !important;
-    height: 100% !important;
-    border: none !important;
-    display: block;
-}}
-
-/* Force streamlit_folium à remplir l'espace */
-.stfolium-container {{
-    position: fixed !important;
-    top: 48px !important;
-    left: 0 !important;
-    right: 0 !important;
-    bottom: 0 !important;
-    width: 100vw !important;
-    height: calc(100vh - 48px) !important;
-}}
-
-/* ── Panel latéral flottant ── */
-#bw-panel {{
-    position: fixed;
-    top: 58px;
-    right: 10px;
-    width: 330px;
-    max-height: calc(100vh - 68px);
-    background: {CARD}F2;
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid {BRD};
-    border-radius: 14px;
-    overflow-y: auto;
-    z-index: 9998;
-    box-shadow: 0 8px 40px rgba(0,0,0,0.5);
-    scrollbar-width: thin;
-    scrollbar-color: {BRD} transparent;
-}}
-#bw-panel::-webkit-scrollbar {{
-    width: 3px;
-}}
-#bw-panel::-webkit-scrollbar-thumb {{
-    background: {BRD};
-    border-radius: 2px;
-}}
-
-/* ── Hint bas de page ── */
-#bw-hint {{
-    position: fixed;
-    bottom: 14px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: {CARD}EE;
-    backdrop-filter: blur(10px);
-    border: 1px solid {BRD};
-    border-radius: 20px;
-    padding: 7px 18px;
-    font-size: 11px;
-    color: {TXT2};
-    z-index: 9997;
-    pointer-events: none;
-    white-space: nowrap;
-}}
-
-/* ── Bouton mode ── */
-.stButton > button {{
-    background: {C2} !important;
-    border: 1px solid {BRD} !important;
-    color: {TXT} !important;
-    border-radius: 20px !important;
-    font-size: 11px !important;
-    padding: 4px 12px !important;
-    height: 30px !important;
-}}
-
-/* ── Éléments du panel ── */
-.p-header {{
-    padding: 14px 16px 12px;
-    border-bottom: 1px solid {BRD};
-}}
-.p-zone-name {{
-    font-size: 18px;
-    font-weight: 600;
-    color: {TXT};
-    margin-bottom: 3px;
-}}
-.p-zone-desc {{
-    font-size: 11px;
-    color: {TXT2};
-    margin-bottom: 10px;
-}}
-.p-badge {{
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 3px 10px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 500;
-}}
-.p-section {{
-    padding: 12px 16px;
-    border-bottom: 1px solid {BRD};
-}}
-.p-label {{
-    font-size: 10px;
-    color: {TXT2};
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    font-weight: 500;
-    margin-bottom: 8px;
-}}
-.evt-card {{
-    background: {C2};
-    border-radius: 8px;
-    padding: 9px 11px;
-    margin-bottom: 6px;
-}}
-.evt-type {{
-    font-size: 11px;
-    font-weight: 600;
-    margin-bottom: 3px;
-}}
-.evt-desc {{
-    font-size: 12px;
-    color: {TXT};
-    line-height: 1.45;
-    margin-bottom: 4px;
-}}
-.evt-meta {{
-    font-size: 10px;
-    color: {TXT2};
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}}
-.evt-link {{
-    color: #4A9EFF;
-    text-decoration: none;
-    font-size: 10px;
-}}
-.tag {{
-    display: inline-block;
-    background: {C2};
-    border: 1px solid {BRD};
-    border-radius: 12px;
-    padding: 3px 9px;
-    font-size: 11px;
-    color: {TXT};
-    margin: 2px;
-}}
-.media-row {{
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 7px;
-}}
-.media-bar-bg {{
-    flex: 1;
-    background: {BRD};
-    border-radius: 3px;
-    height: 5px;
-    overflow: hidden;
-}}
-.alerte {{
-    background: #1A0505;
-    border: 1px solid #C0392B;
-    border-radius: 8px;
-    padding: 9px 12px;
-    font-size: 12px;
-    color: #E24B4A;
-    margin-bottom: 8px;
-    display: flex;
-    gap: 7px;
-}}
-.wa-btn {{
-    display: block;
-    margin: 10px 16px 14px;
-    text-align: center;
-    background: {"#1A3A1A" if D else "#E8F5E9"};
-    color: #27AE60;
-    padding: 9px;
-    border-radius: 10px;
-    font-size: 12px;
-    text-decoration: none;
-    font-weight: 500;
-    border: 1px solid {"#2A5A2A" if D else "#A5D6A7"};
-}}
-</style>
-""", unsafe_allow_html=True)
+D = st.session_state.dark_mode
 
 # ============================================================
 # DONNÉES
 # ============================================================
 @st.cache_data(ttl=900)
 def charger_donnees():
-    df = pd.read_csv(
-        "data/gdelt_benin_2025_clean.csv", low_memory=False)
-    df_m = pd.read_csv(
-        "data/gdelt_benin_2025_mentions.csv", low_memory=False)
-    df_g = pd.read_csv(
-        "data/gdelt_benin_2025_gkg.csv", low_memory=False)
+    df = pd.read_csv("data/gdelt_benin_2025_clean.csv", low_memory=False)
+    df_m = pd.read_csv("data/gdelt_benin_2025_mentions.csv", low_memory=False)
+    df_g = pd.read_csv("data/gdelt_benin_2025_gkg.csv", low_memory=False)
     for col in ["GoldsteinScale","AvgTone","NumArticles",
                 "QuadClass","ActionGeo_Lat","ActionGeo_Long"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
     df["SQLDATE"] = pd.to_datetime(df["SQLDATE"], errors="coerce")
     df["GlobalEventID"] = df["GlobalEventID"].astype(str)
-    df_m["MentionDocTone"] = pd.to_numeric(
-        df_m["MentionDocTone"], errors="coerce")
+    df_m["MentionDocTone"] = pd.to_numeric(df_m["MentionDocTone"], errors="coerce")
     df_m["GlobalEventID"] = df_m["GlobalEventID"].astype(str)
     df_g["DATE"] = pd.to_datetime(df_g["DATE"], errors="coerce")
     return df, df_m, df_g
 
 df, df_m, df_g = charger_donnees()
 
-ZONES = {
-    "Alibori":    {"lat":11.50,"lon":2.80,"desc":"Nord-est"},
-    "Atakora":    {"lat":10.50,"lon":1.40,"desc":"Nord-ouest"},
-    "Borgou":     {"lat": 9.80,"lon":2.70,"desc":"Centre-nord · Parakou"},
-    "Donga":      {"lat": 9.50,"lon":1.70,"desc":"Centre-ouest"},
-    "Collines":   {"lat": 8.50,"lon":2.30,"desc":"Centre"},
-    "Plateau":    {"lat": 7.80,"lon":2.60,"desc":"Est"},
-    "Zou":        {"lat": 7.30,"lon":2.00,"desc":"Sud-centre · Abomey"},
-    "Couffo":     {"lat": 7.10,"lon":1.70,"desc":"Sud-ouest"},
-    "Ouémé":      {"lat": 6.80,"lon":2.50,"desc":"Sud-est · Porto-Novo"},
-    "Mono":       {"lat": 6.80,"lon":1.60,"desc":"Sud · Frontière Togo"},
-    "Atlantique": {"lat": 6.50,"lon":2.20,"desc":"Sud · Côte"},
-    "Littoral":   {"lat": 6.35,"lon":2.43,"desc":"Cotonou"},
-}
-
 CAMEO = {
     "1": ("📢","Annonce officielle","Le gouvernement ou une organisation a fait une annonce."),
     "2": ("🕊️","Appel au dialogue","Des acteurs appellent à la discussion ou à la paix."),
     "3": ("🤝","Accord signé","Un accord ou un partenariat a été conclu."),
-    "4": ("🗣️","Réunion diplomatique","Des responsables se sont rencontrés."),
+    "4": ("🗣️","Réunion officielle","Des responsables se sont rencontrés."),
     "5": ("✅","Accord finalisé","Un accord important a été signé."),
     "6": ("🎁","Aide annoncée","Une aide matérielle ou financière a été annoncée."),
     "7": ("🏥","Aide humanitaire","Une aide humanitaire a été mobilisée."),
     "8": ("⚖️","Action judiciaire","Une décision ou action judiciaire a eu lieu."),
-    "9": ("🔍","Enquête","Une enquête a été ouverte."),
+    "9": ("🔍","Enquête ouverte","Une enquête a été lancée."),
     "10":("📣","Revendication","Un groupe exprime une demande."),
     "11":("🗳️","Désaccord politique","Un désaccord entre acteurs politiques."),
     "12":("🚫","Rejet","Une proposition a été refusée."),
@@ -374,7 +82,7 @@ THEMES = {
     "INFRASTRUCTURE":"Infrastructures",
 }
 
-PAYS = {
+PAYS_FLAGS = {
     "Nigeria":("🇳🇬","Nigeria"),
     "Bénin":("🇧🇯","Bénin"),
     "France":("🇫🇷","France"),
@@ -400,10 +108,10 @@ def classifier_pays(url):
     return "Autre"
 
 def ton_court(t):
-    if t <= -4: return "En parle très négativement","#C0392B"
-    if t <= -2: return "Couverture négative","#E67E22"
-    if t <=  0: return "Couverture neutre","#8888AA"
-    return "Couverture positive","#27AE60"
+    if t <= -4: return "Très négatif","#C0392B"
+    if t <= -2: return "Négatif","#E67E22"
+    if t <=  0: return "Neutre","#8888AA"
+    return "Positif","#27AE60"
 
 def score_zone(zdf):
     if len(zdf) == 0: return 0
@@ -413,71 +121,78 @@ def score_zone(zdf):
     return round(t*4 + g*0.3 + n*3, 1)
 
 def niveau(s):
-    if s >= 7: return "🔴","#C0392B","Activité élevée"
-    if s >= 4: return "🟠","#E67E22","Activité modérée"
-    if s >= 2: return "🟡","#E6A817","Activité normale"
-    return "🟢","#27AE60","Situation calme"
+    if s >= 7: return "🔴","#C0392B","Situation tendue","rouge"
+    if s >= 4: return "🟠","#E67E22","Vigilance","orange"
+    if s >= 2: return "🟡","#F1C40F","Activité normale","jaune"
+    return "🟢","#27AE60","Situation calme","vert"
 
 @st.cache_data(ttl=900)
 def tous_scores(_df):
     return {z: score_zone(
-        _df[_df["ActionGeo_FullName"].str.contains(z, na=False, case=False)]
-    ) for z in ZONES}
+        _df[_df["ActionGeo_FullName"].str.contains(z,na=False,case=False)]
+    ) for z in ZONES_DEF}
+
+ZONES_DEF = {
+    "Alibori":    {"lat":11.50,"lon":2.80,"desc":"Nord-est"},
+    "Atakora":    {"lat":10.50,"lon":1.40,"desc":"Nord-ouest"},
+    "Borgou":     {"lat": 9.80,"lon":2.70,"desc":"Centre-nord · Parakou"},
+    "Donga":      {"lat": 9.50,"lon":1.70,"desc":"Centre-ouest"},
+    "Collines":   {"lat": 8.50,"lon":2.30,"desc":"Centre"},
+    "Plateau":    {"lat": 7.80,"lon":2.60,"desc":"Est"},
+    "Zou":        {"lat": 7.30,"lon":2.00,"desc":"Sud-centre · Abomey"},
+    "Couffo":     {"lat": 7.10,"lon":1.70,"desc":"Sud-ouest"},
+    "Ouémé":      {"lat": 6.80,"lon":2.50,"desc":"Sud-est · Porto-Novo"},
+    "Mono":       {"lat": 6.80,"lon":1.60,"desc":"Sud"},
+    "Atlantique": {"lat": 6.50,"lon":2.20,"desc":"Sud · Côte"},
+    "Littoral":   {"lat": 6.35,"lon":2.43,"desc":"Cotonou"},
+}
 
 scores = tous_scores(df)
 
 @st.cache_data(ttl=900)
-def zone_data(_df, _dfm, _dfg, zone):
+def get_zone(_df, _dfm, _dfg, zone):
     zdf = _df[_df["ActionGeo_FullName"].str.contains(
-        zone, na=False, case=False)].copy()
+        zone,na=False,case=False)].copy()
     s = score_zone(zdf)
 
-    # Événements
     evts = []
-    for _, r in zdf[zdf["SOURCEURL"].notna()].nlargest(
-            6,"NumArticles").iterrows():
+    for _, r in zdf[zdf["SOURCEURL"].notna()].nlargest(5,"NumArticles").iterrows():
         code = str(r.get("EventRootCode","")).strip()
-        em, tp, desc = CAMEO.get(code, ("📌","Événement","Un événement a été signalé."))
-        g = r.get("GoldsteinScale", 0)
-        url = r.get("SOURCEURL","")
+        em, tp, desc = CAMEO.get(code,("📌","Événement","Un événement a été signalé."))
+        g = float(r.get("GoldsteinScale",0) or 0)
+        url = str(r.get("SOURCEURL",""))
         src = url.split("/")[2].replace("www.","") if url.startswith("http") else ""
         try: date = pd.to_datetime(r["SQLDATE"]).strftime("%d %b")
         except: date = ""
         evts.append({
-            "em":em,"tp":tp,"desc":desc,"g":g,
-            "url":url,"src":src,"date":date,
-            "color":("#C0392B" if g<-2 else "#E67E22" if g<1 else "#27AE60")
+            "em":em,"tp":tp,"desc":desc,"g":g,"url":url,
+            "src":src,"date":date,
+            "color":"#C0392B" if g<-2 else "#E67E22" if g<1 else "#27AE60"
         })
 
-    # Médias
     ids = zdf["GlobalEventID"].tolist()
     mz = _dfm[_dfm["GlobalEventID"].isin(ids)].copy()
     medias = []
     if len(mz):
         mz["pays"] = mz["MentionIdentifier"].apply(classifier_pays)
-        tp = mz.groupby("pays").agg(
+        tp_pays = mz.groupby("pays").agg(
             nb=("MentionDocTone","count"),
             ton=("MentionDocTone","mean")
         ).sort_values("nb",ascending=False).head(5)
-        mx = tp["nb"].max()
-        for pays, row in tp.iterrows():
+        mx = tp_pays["nb"].max()
+        for pays, row in tp_pays.iterrows():
             txt, col = ton_court(row["ton"])
-            fl, nm = PAYS.get(pays, ("🌐", pays))
-            medias.append({
-                "fl":fl,"nm":nm,"pct":row["nb"]/mx*100,
-                "txt":txt,"col":col,"nb":int(row["nb"])
-            })
+            fl, nm = PAYS_FLAGS.get(pays,("🌐",pays))
+            medias.append({"fl":fl,"nm":nm,
+                "pct":row["nb"]/mx*100,"txt":txt,"col":col})
 
-    # Thèmes
-    gz = _dfg[_dfg["Locations"].str.contains(zone, na=False, case=False)]
-    th_list = []
+    gz = _dfg[_dfg["Locations"].str.contains(zone,na=False,case=False)]
+    th = []
     for t in gz["Themes"].dropna():
         for x in str(t).split(";"):
-            if x.strip() in THEMES:
-                th_list.append(THEMES[x.strip()])
-    themes = [t for t,_ in Counter(th_list).most_common(6)]
+            if x.strip() in THEMES: th.append(THEMES[x.strip()])
+    themes = [t for t,_ in Counter(th).most_common(5)]
 
-    # Personnes
     pers = []
     for p in gz["Persons"].dropna():
         for x in str(p).split(";"):
@@ -485,218 +200,451 @@ def zone_data(_df, _dfm, _dfg, zone):
             if x and len(x)>3: pers.append(x)
     top_pers = [p for p,_ in Counter(pers).most_common(4)]
 
-    alerte = None
-    if s >= 6: alerte = "Des incidents ont été signalés. Soyez prudent."
-    elif s >= 4: alerte = "Situation à surveiller. Restez informé."
-
-    return {"s":s,"evts":evts,"medias":medias,
-            "themes":themes,"pers":top_pers,"alerte":alerte}
+    return {"s":s,"evts":evts,"medias":medias,"themes":themes,"pers":top_pers}
 
 # ============================================================
-# CARTE
+# CONSTRUCTION DU JSON POUR LA CARTE
 # ============================================================
-def carte():
-    m = folium.Map(
-        location=[9.0, 2.3], zoom_start=7,
-        tiles=TILE, attr="BENIN WATCH",
-        prefer_canvas=True, zoom_control=True,
-    )
+zones_json = {}
+for zone in ZONES_DEF:
+    s = scores.get(zone, 0)
+    em, col, lbl, _ = niveau(s)
+    d = get_zone(df, df_m, df_g, zone)
 
-    # Heatmap
-    dh = df[df["ActionGeo_Lat"].notna() & df["ActionGeo_Long"].notna()][
-        ["ActionGeo_Lat","ActionGeo_Long","NumArticles"]].copy()
-    dh["NumArticles"] = pd.to_numeric(dh["NumArticles"],errors="coerce").fillna(1)
-    if len(dh):
-        HeatMap(
-            dh.values.tolist(), min_opacity=0.2,
-            radius=20, blur=16,
-            gradient={0.2:"#27AE60",0.5:"#E67E22",
-                      0.8:"#C0392B",1.0:"#7B0000"}
-        ).add_to(m)
+    evts_data = []
+    for e in d["evts"]:
+        evts_data.append({
+            "em": e["em"], "tp": e["tp"], "desc": e["desc"],
+            "date": e["date"], "src": e["src"],
+            "url": e["url"], "color": e["color"]
+        })
 
-    for zone, info in ZONES.items():
-        s = scores.get(zone, 0)
-        em, col, _ = niveau(s)
-        r = 9 + s*2
+    medias_data = []
+    for m in d["medias"]:
+        medias_data.append({
+            "fl": m["fl"], "nm": m["nm"],
+            "pct": m["pct"], "txt": m["txt"], "col": m["col"]
+        })
 
-        folium.CircleMarker(
-            [info["lat"], info["lon"]],
-            radius=r, color=col,
-            fill=True, fill_color=col,
-            fill_opacity=0.75, weight=2,
-            popup=folium.Popup(
-                f'<div style="font-family:Inter,sans-serif;padding:4px;">'
-                f'<b style="color:{col};">{em} {zone}</b><br>'
-                f'<small style="color:#666;">{info["desc"]}</small></div>',
-                max_width=180),
-            tooltip=f"{em} {zone}",
-        ).add_to(m)
+    zones_json[zone] = {
+        "score": s,
+        "emoji": em,
+        "color": col,
+        "label": lbl,
+        "desc": ZONES_DEF[zone]["desc"],
+        "lat": ZONES_DEF[zone]["lat"],
+        "lon": ZONES_DEF[zone]["lon"],
+        "themes": d["themes"],
+        "evts": evts_data,
+        "medias": medias_data,
+        "pers": d["pers"],
+    }
 
-        if s >= 5:
-            folium.CircleMarker(
-                [info["lat"], info["lon"]],
-                radius=r+9, color=col,
-                fill=False, weight=1, opacity=0.2,
-            ).add_to(m)
+zones_json_str = json.dumps(zones_json, ensure_ascii=False)
 
-        folium.Marker(
-            [info["lat"]+0.17, info["lon"]],
-            icon=folium.DivIcon(
-                html=(f'<div style="font-family:Inter,sans-serif;'
-                      f'font-size:10px;font-weight:600;'
-                      f'color:{"#EEE" if D else "#111"};'
-                      f'text-shadow:0 1px 3px rgba(0,0,0,.9);'
-                      f'white-space:nowrap;pointer-events:none;">'
-                      f'{zone}</div>'),
-                icon_size=(90,18), icon_anchor=(45,0),
-            )
-        ).add_to(m)
-    return m
-
-# ============================================================
-# RENDER
-# ============================================================
 nb_a = sum(1 for s in scores.values() if s >= 7)
-nb_v = sum(1 for s in scores.values() if 4 <= s < 7)
+date_str = datetime.now().strftime('%d %B %Y · %H:%M')
+mode_icon = "☀️" if D else "🌙"
+bg = "#080810" if D else "#F0F0F8"
+card = "#0F0F1Aee" if D else "#FFFFFFee"
+c2 = "#13131A" if D else "#F0F0F5"
+brd = "#1A1A30" if D else "#DDDDEE"
+txt = "#CCCCDD" if D else "#1A1A2E"
+txt2 = "#7777AA" if D else "#666688"
+tile = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" if D else "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
 
-# Header HTML pur
-st.markdown(f"""
-<div id="bw-header">
-  <div class="bw-logo">
-    <span class="r">BENIN</span><span class="w"> WATCH</span>
-  </div>
-  <div class="bw-live">
+# ============================================================
+# HTML/JS COMPLET
+# ============================================================
+html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+*{{margin:0;padding:0;box-sizing:border-box;font-family:'Inter',sans-serif;}}
+html,body{{width:100%;height:100%;background:{bg};overflow:hidden;}}
+
+/* Header */
+#header{{
+    position:fixed;top:0;left:0;right:0;height:50px;
+    background:{card};
+    backdrop-filter:blur(16px);
+    border-bottom:1px solid {brd};
+    display:flex;align-items:center;
+    justify-content:space-between;
+    padding:0 18px;z-index:1000;
+}}
+.logo{{font-size:15px;font-weight:700;letter-spacing:3px;}}
+.logo .r{{color:#C0392B;}}
+.logo .w{{color:{txt};}}
+.live{{font-size:11px;color:{txt2};display:flex;align-items:center;gap:6px;}}
+.dot{{width:6px;height:6px;border-radius:50%;background:#27AE60;
+    animation:bl 1.5s infinite;}}
+@keyframes bl{{0%,100%{{opacity:1}}50%{{opacity:.2}}}}
+.alert-badge{{
+    background:#2A0505;color:#C0392B;
+    padding:3px 10px;border-radius:20px;
+    font-size:11px;font-weight:500;
+    border:1px solid #5A1A1A;
+}}
+.mode-btn{{
+    background:{c2};border:1px solid {brd};
+    color:{txt};padding:5px 12px;
+    border-radius:20px;font-size:12px;
+    cursor:pointer;
+}}
+.mode-btn:hover{{background:{brd};}}
+
+/* Carte */
+#map{{
+    position:fixed;
+    top:50px;left:0;right:0;bottom:0;
+    z-index:1;
+}}
+
+/* Panneau météo latéral */
+#panel{{
+    position:fixed;
+    top:60px;right:10px;
+    width:320px;
+    max-height:calc(100vh - 70px);
+    background:{card};
+    backdrop-filter:blur(20px);
+    border:1px solid {brd};
+    border-radius:14px;
+    overflow-y:auto;
+    z-index:900;
+    box-shadow:0 8px 40px rgba(0,0,0,.5);
+    display:none;
+    scrollbar-width:thin;
+    scrollbar-color:{brd} transparent;
+}}
+#panel::-webkit-scrollbar{{width:3px;}}
+#panel::-webkit-scrollbar-thumb{{background:{brd};border-radius:2px;}}
+
+/* En-tête zone */
+.p-head{{padding:14px 16px 12px;border-bottom:1px solid {brd};}}
+.p-name{{font-size:18px;font-weight:600;color:{txt};margin-bottom:2px;}}
+.p-desc{{font-size:11px;color:{txt2};margin-bottom:10px;}}
+.p-badge{{
+    display:inline-flex;align-items:center;gap:5px;
+    padding:4px 10px;border-radius:20px;
+    font-size:12px;font-weight:500;
+}}
+.close-btn{{
+    float:right;background:none;border:none;
+    color:{txt2};font-size:16px;cursor:pointer;
+    margin-top:-2px;
+}}
+
+/* Sections */
+.p-sec{{padding:12px 16px;border-bottom:1px solid {brd};}}
+.p-lbl{{
+    font-size:10px;color:{txt2};
+    text-transform:uppercase;letter-spacing:1px;
+    font-weight:600;margin-bottom:8px;
+}}
+
+/* Événements style météo — avec flèches */
+.evt-item{{
+    display:flex;align-items:flex-start;gap:10px;
+    padding:9px 0;border-bottom:1px solid {brd}22;
+    cursor:pointer;
+    transition:background .15s;
+}}
+.evt-item:last-child{{border-bottom:none;}}
+.evt-item:hover{{background:{c2};border-radius:6px;padding:9px 6px;}}
+.evt-icon{{
+    font-size:18px;min-width:26px;
+    text-align:center;margin-top:1px;
+}}
+.evt-body{{flex:1;}}
+.evt-type{{
+    font-size:11px;font-weight:600;
+    margin-bottom:3px;
+}}
+.evt-desc{{
+    font-size:12px;color:{txt};
+    line-height:1.4;margin-bottom:4px;
+}}
+.evt-meta{{
+    font-size:10px;color:{txt2};
+    display:flex;justify-content:space-between;
+}}
+.evt-arrow{{
+    font-size:14px;color:{txt2};
+    margin-top:4px;transition:transform .2s;
+    min-width:16px;
+}}
+.evt-item:hover .evt-arrow{{
+    color:#4A9EFF;transform:translateX(3px);
+}}
+.evt-link{{color:#4A9EFF;text-decoration:none;font-size:10px;}}
+
+/* Tags */
+.tag{{
+    display:inline-block;
+    background:{c2};border:1px solid {brd};
+    border-radius:12px;padding:3px 9px;
+    font-size:11px;color:{txt};margin:2px;
+}}
+
+/* Barres médias */
+.media-row{{
+    display:flex;align-items:center;gap:7px;
+    margin-bottom:8px;
+}}
+.media-bar-bg{{
+    flex:1;background:{brd};
+    border-radius:3px;height:5px;
+}}
+.media-bar-fill{{height:5px;border-radius:3px;}}
+
+/* WhatsApp */
+.wa-btn{{
+    display:block;margin:12px 16px 14px;
+    text-align:center;
+    background:{"#1A3A1A" if D else "#E8F5E9"};
+    color:#27AE60;padding:9px;border-radius:10px;
+    font-size:12px;text-decoration:none;font-weight:500;
+    border:1px solid {"#2A5A2A" if D else "#A5D6A7"};
+}}
+
+/* Alerte */
+.alerte{{
+    background:#1A0505;border:1px solid #C0392B;
+    border-radius:8px;padding:9px 12px;
+    font-size:12px;color:#E24B4A;
+    margin-bottom:8px;display:flex;gap:7px;
+}}
+
+/* Hint */
+#hint{{
+    position:fixed;bottom:14px;left:50%;
+    transform:translateX(-50%);
+    background:{card};
+    border:1px solid {brd};border-radius:20px;
+    padding:7px 18px;font-size:11px;color:{txt2};
+    z-index:500;pointer-events:none;white-space:nowrap;
+    box-shadow:0 4px 16px rgba(0,0,0,.3);
+}}
+
+/* Marqueurs personnalisés — style météo */
+.marker-wrap{{
+    display:flex;flex-direction:column;
+    align-items:center;cursor:pointer;
+}}
+.marker-circle{{
+    border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    font-size:11px;font-weight:700;color:#fff;
+    box-shadow:0 2px 8px rgba(0,0,0,.4);
+    transition:transform .2s;
+    border:2px solid rgba(255,255,255,.3);
+}}
+.marker-circle:hover{{transform:scale(1.15);}}
+.marker-arrow{{
+    width:0;height:0;
+    border-left:6px solid transparent;
+    border-right:6px solid transparent;
+    margin-top:-1px;
+}}
+.marker-label{{
+    font-size:10px;font-weight:600;
+    color:{"#EEE" if D else "#111"};
+    margin-top:3px;
+    text-shadow:0 1px 3px rgba(0,0,0,.9);
+    white-space:nowrap;
+    pointer-events:none;
+}}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div id="header">
+  <div class="logo"><span class="r">BENIN</span><span class="w"> WATCH</span></div>
+  <div class="live">
     <div class="dot"></div>
-    {datetime.now().strftime('%d %B %Y')}
-    {"&nbsp;·&nbsp;<span style='color:#C0392B;font-weight:500;'>⚠️ " + str(nb_a) + " zone(s) à surveiller</span>" if nb_a else ""}
-    {"&nbsp;·&nbsp;<span style='color:#E67E22;'>" + str(nb_v) + " en vigilance</span>" if nb_v else ""}
+    {date_str}
+    {f'&nbsp;·&nbsp;<span class="alert-badge">⚠️ {nb_a} zone(s) à surveiller</span>' if nb_a else ''}
   </div>
-  <div></div>
+  <button class="mode-btn" onclick="window.parent.postMessage('toggle_mode','*')">
+    {mode_icon}
+  </button>
 </div>
-""", unsafe_allow_html=True)
 
-# Bouton mode sombre — dans une zone invisible au-dessus de la carte
-col1, col2, col3 = st.columns([8, 1, 1])
-with col3:
-    st.button("☀️" if D else "🌙", on_click=toggle_mode,
-              help="Changer le thème")
+<!-- Carte -->
+<div id="map"></div>
 
-# Carte plein écran
-cd = st_folium(
-    carte(),
-    width="100%",
-    height=700,
-    returned_objects=["last_object_clicked_tooltip"],
-    key=f"map_{'d' if D else 'l'}"
-)
+<!-- Panneau latéral -->
+<div id="panel">
+  <div class="p-head">
+    <button class="close-btn" onclick="closePanel()">✕</button>
+    <div class="p-name" id="p-name">—</div>
+    <div class="p-desc" id="p-desc">—</div>
+    <span class="p-badge" id="p-badge">—</span>
+  </div>
+  <div id="p-content"></div>
+</div>
 
-# Détecter zone cliquée
-if cd and cd.get("last_object_clicked_tooltip"):
-    for z in ZONES:
-        if z in str(cd["last_object_clicked_tooltip"]):
-            st.session_state.zone_active = z
-            break
+<!-- Hint -->
+<div id="hint">🗺️ Cliquez sur un département pour voir ce qui s'y passe</div>
 
-# Panel flottant en HTML pur
-zone = st.session_state.zone_active
-if zone:
-    d = zone_data(df, df_m, df_g, zone)
-    s = d["s"]
-    em, col, lbl = niveau(s)
+<script>
+// Données zones
+const ZONES = {zones_json_str};
 
-    # Événements HTML
-    evts_html = ""
-    for e in d["evts"][:5]:
-        lien = (f'<a href="{e["url"]}" target="_blank" class="evt-link">'
-                f'Lire →</a>' if e["url"].startswith("http") else "")
-        evts_html += f"""
-        <div class="evt-card" style="border-left:3px solid {e['color']};">
-          <div class="evt-type" style="color:{e['color']};">
-            {e['em']} {e['tp']}
+// Initialiser carte Leaflet
+const map = L.map('map', {{
+    center: [9.0, 2.3],
+    zoom: 7,
+    zoomControl: true,
+}});
+
+L.tileLayer('{tile}', {{
+    attribution: '© CartoDB',
+    subdomains: 'abcd',
+    maxZoom: 19
+}}).addTo(map);
+
+// Ajouter marqueurs style météo
+Object.entries(ZONES).forEach(([nom, z]) => {{
+    const size = 32 + z.score * 3;
+    const icon = L.divIcon({{
+        className: '',
+        html: `
+        <div class="marker-wrap">
+          <div class="marker-circle"
+            style="width:${{size}}px;height:${{size}}px;
+                   background:${{z.color}};
+                   box-shadow:0 0 ${{z.score>=6?'14':'6'}}px ${{z.color}}66;">
+            ${{z.emoji}}
           </div>
-          <div class="evt-desc">{e['desc']}</div>
-          <div class="evt-meta">
-            <span>{e['date']} · {e['src']}</span>
-            {lien}
+          <div class="marker-arrow"
+            style="border-top:8px solid ${{z.color}};"></div>
+          <div class="marker-label">${{nom}}</div>
+        </div>`,
+        iconSize: [size+40, size+30],
+        iconAnchor: [(size+40)/2, size/2],
+    }});
+
+    L.marker([z.lat, z.lon], {{icon}})
+     .addTo(map)
+     .on('click', () => openPanel(nom));
+}});
+
+// Ouvrir panneau
+function openPanel(nom) {{
+    const z = ZONES[nom];
+    document.getElementById('hint').style.display = 'none';
+    document.getElementById('panel').style.display = 'block';
+
+    document.getElementById('p-name').textContent = nom;
+    document.getElementById('p-desc').textContent = z.desc;
+    document.getElementById('p-badge').innerHTML =
+        `${{z.emoji}} ${{z.label}}`;
+    document.getElementById('p-badge').style.cssText =
+        `background:${{z.color}}18;color:${{z.color}};
+         border:1px solid ${{z.color}}44;`;
+
+    let html = '';
+
+    // Alerte si nécessaire
+    if (z.score >= 4) {{
+        html += `<div class="p-sec">
+          <div class="alerte">
+            <span>⚠️</span>
+            <span>${{z.score >= 6
+                ? 'Des incidents ont été signalés. Soyez prudent.'
+                : 'Situation à surveiller. Restez informé.'}}</span>
           </div>
-        </div>"""
+        </div>`;
+    }}
 
-    # Médias HTML
-    medias_html = ""
-    for md in d["medias"]:
-        medias_html += f"""
-        <div class="media-row">
-          <span style="font-size:14px;">{md['fl']}</span>
-          <span style="font-size:12px;color:{TXT};min-width:90px;">{md['nm']}</span>
-          <div class="media-bar-bg">
-            <div style="width:{md['pct']:.0f}%;height:5px;
-              background:{md['col']};border-radius:3px;"></div>
-          </div>
-          <span style="font-size:10px;color:{md['col']};
-            min-width:90px;text-align:right;font-weight:500;">
-            {md['txt']}
-          </span>
-        </div>"""
+    // Thèmes
+    if (z.themes && z.themes.length) {{
+        html += `<div class="p-sec">
+          <div class="p-lbl">De quoi parle-t-on ici ?</div>
+          ${{z.themes.map(t => `<span class="tag">${{t}}</span>`).join('')}}
+        </div>`;
+    }}
 
-    # Thèmes HTML
-    tags_html = "".join(
-        f'<span class="tag">{t}</span>' for t in d["themes"])
+    // Événements style météo avec flèches
+    if (z.evts && z.evts.length) {{
+        html += `<div class="p-sec">
+          <div class="p-lbl">Ce qui s'est passé</div>`;
+        z.evts.forEach(e => {{
+            html += `
+            <div class="evt-item" onclick="${{e.url ? `window.open('${{e.url}}','_blank')` : ''}}" >
+              <div class="evt-icon">${{e.em}}</div>
+              <div class="evt-body">
+                <div class="evt-type" style="color:${{e.color}};">${{e.tp}}</div>
+                <div class="evt-desc">${{e.desc}}</div>
+                <div class="evt-meta">
+                  <span>${{e.date}} · ${{e.src}}</span>
+                  ${{e.url ? '<span style="color:#4A9EFF;">Lire →</span>' : ''}}
+                </div>
+              </div>
+              <div class="evt-arrow">›</div>
+            </div>`;
+        }});
+        html += `</div>`;
+    }}
 
-    # Personnes HTML
-    pers_html = "".join(
-        f'<span class="tag">{p}</span>' for p in d["pers"])
+    // Médias
+    if (z.medias && z.medias.length) {{
+        html += `<div class="p-sec">
+          <div class="p-lbl">Ce que les médias en disent</div>`;
+        z.medias.forEach(m => {{
+            html += `
+            <div class="media-row">
+              <span style="font-size:14px;">${{m.fl}}</span>
+              <span style="font-size:12px;min-width:85px;">${{m.nm}}</span>
+              <div class="media-bar-bg">
+                <div class="media-bar-fill"
+                  style="width:${{m.pct.toFixed(0)}}%;background:${{m.col}};"></div>
+              </div>
+              <span style="font-size:10px;color:${{m.col}};
+                min-width:80px;text-align:right;font-weight:500;">
+                ${{m.txt}}
+              </span>
+            </div>`;
+        }});
+        html += `</div>`;
+    }}
 
-    # Alerte HTML
-    alerte_html = ""
-    if d["alerte"]:
-        alerte_html = f"""
-        <div class="alerte">
-          <span>⚠️</span><span>{d['alerte']}</span>
-        </div>"""
+    // Personnes citées
+    if (z.pers && z.pers.length) {{
+        html += `<div class="p-sec">
+          <div class="p-lbl">Personnes citées</div>
+          ${{z.pers.map(p => `<span class="tag">${{p}}</span>`).join('')}}
+        </div>`;
+    }}
 
-    msg = (f"BENIN WATCH · {zone} — {lbl}. "
-           f"Infos sur beninwatch.streamlit.app")
-    wa = f"https://wa.me/?text={msg.replace(' ','%20')}"
+    // WhatsApp
+    const msg = encodeURIComponent(
+        `BENIN WATCH · ${{nom}} — ${{z.label}}. ` +
+        `Infos sur beninwatch.streamlit.app`);
+    html += `<a href="https://wa.me/?text=${{msg}}"
+               target="_blank" class="wa-btn">
+               📲 Partager sur WhatsApp</a>`;
 
-    panel_html = f"""
-    <div id="bw-panel">
+    document.getElementById('p-content').innerHTML = html;
+}}
 
-      <div class="p-header">
-        <div class="p-zone-name">{zone}</div>
-        <div class="p-zone-desc">{ZONES[zone]['desc']}</div>
-        <span class="p-badge"
-          style="background:{col}18;color:{col};border:1px solid {col}33;">
-          {em} {lbl}
-        </span>
-      </div>
+function closePanel() {{
+    document.getElementById('panel').style.display = 'none';
+    document.getElementById('hint').style.display = 'block';
+}}
+</script>
+</body>
+</html>
+"""
 
-      <div class="p-section">
-        {alerte_html}
-        <div class="p-label">De quoi parle-t-on ici ?</div>
-        <div>{tags_html}</div>
-      </div>
-
-      <div class="p-section">
-        <div class="p-label">Ce qui s'est passé</div>
-        {evts_html if evts_html else
-         f'<div style="color:{TXT2};font-size:12px;">Aucun événement disponible.</div>'}
-      </div>
-
-      {"<div class='p-section'><div class='p-label'>Ce que les médias en disent</div>" + medias_html + "</div>" if medias_html else ""}
-
-      {"<div class='p-section'><div class='p-label'>Personnes citées</div>" + pers_html + "</div>" if pers_html else ""}
-
-      <a href="{wa}" target="_blank" class="wa-btn">
-        📲 Partager sur WhatsApp
-      </a>
-
-    </div>"""
-
-    st.markdown(panel_html, unsafe_allow_html=True)
-
-else:
-    st.markdown(
-        '<div id="bw-hint">'
-        '🗺️ Cliquez sur un département pour voir ce qui s\'y passe'
-        '</div>',
-        unsafe_allow_html=True)
+st.components.v1.html(html, height=800, scrolling=False)
