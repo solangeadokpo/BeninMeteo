@@ -1,12 +1,15 @@
 # ============================================================
-# BENIN WATCH — app.py
+# BENIN WATCH — app.py — Version Folium Interactive
 # ============================================================
 
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
+import folium
+from folium.plugins import HeatMap, MarkerCluster
+from streamlit_folium import st_folium
 import anthropic
 import random
+import json
 from datetime import datetime
 
 # ============================================================
@@ -19,93 +22,182 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-st.markdown("""
+# ============================================================
+# MODE SOMBRE / CLAIR
+# ============================================================
+if "dark_mode" not in st.session_state:
+    st.session_state.dark_mode = True
+
+def toggle_mode():
+    st.session_state.dark_mode = not st.session_state.dark_mode
+
+# Couleurs selon le mode
+if st.session_state.dark_mode:
+    BG       = "#080810"
+    CARD     = "#0F0F1A"
+    CARD2    = "#13131A"
+    BORDER   = "#1A1A30"
+    TEXT     = "#CCCCDD"
+    TEXT2    = "#7777AA"
+    TILE     = "CartoDB dark_matter"
+else:
+    BG       = "#F5F5F8"
+    CARD     = "#FFFFFF"
+    CARD2    = "#F0F0F5"
+    BORDER   = "#DDDDEE"
+    TEXT     = "#1A1A2E"
+    TEXT2    = "#666688"
+    TILE     = "CartoDB positron"
+
+st.markdown(f"""
 <style>
-.stApp{background:#080810;color:#CCCCDD;}
-.stApp header{background:#080810;}
-div[data-testid="metric-container"]{
-    background:#13131A;border:1px solid #1A1A30;
-    border-radius:8px;padding:12px;}
-div[data-testid="metric-container"] label{
-    color:#7777AA !important;font-size:11px !important;}
-div[data-testid="metric-container"] div{
-    color:#FFFFFF !important;font-size:22px !important;
-    font-weight:500 !important;}
-.zone-card{background:#0F0F1A;border:1px solid #1A1A30;
-    border-radius:10px;padding:16px;margin-top:10px;}
-.zone-title{font-size:18px;font-weight:500;
-    color:#fff;margin-bottom:4px;}
-.zone-sub{font-size:12px;color:#7777AA;margin-bottom:12px;}
-.niveau-rouge{color:#C0392B;font-size:13px;font-weight:500;}
-.niveau-orange{color:#E67E22;font-size:13px;font-weight:500;}
-.niveau-vert{color:#27AE60;font-size:13px;font-weight:500;}
-.info-block{background:#13131A;border-radius:6px;
-    padding:10px 12px;margin-bottom:8px;
-    font-size:13px;color:#CCCCDD;line-height:1.5;}
-.info-label{font-size:10px;color:#7777AA;
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+*{{font-family:'Inter',sans-serif;}}
+.stApp{{background:{BG};color:{TEXT};}}
+.stApp header{{background:{BG};}}
+.stSelectbox>div>div{{
+    background:{CARD};border:1px solid {BORDER};
+    color:{TEXT};border-radius:8px;}}
+div[data-testid="metric-container"]{{
+    background:{CARD};border:1px solid {BORDER};
+    border-radius:10px;padding:14px;}}
+div[data-testid="metric-container"] label{{
+    color:{TEXT2} !important;font-size:11px !important;}}
+div[data-testid="metric-container"] div{{
+    color:{TEXT} !important;font-size:22px !important;
+    font-weight:600 !important;}}
+.stDivider{{border-color:{BORDER};}}
+.bw-logo{{
+    font-size:22px;font-weight:600;letter-spacing:3px;
+    padding:6px 0;}}
+.bw-logo .r{{color:#C0392B;}}
+.bw-logo .w{{color:{TEXT};}}
+.zone-panel{{
+    background:{CARD};border:1px solid {BORDER};
+    border-radius:12px;padding:18px;margin-bottom:12px;
+    transition:all 0.3s;}}
+.zone-name{{font-size:20px;font-weight:600;color:{TEXT};margin-bottom:2px;}}
+.zone-meta{{font-size:11px;color:{TEXT2};margin-bottom:14px;}}
+.score-row{{
+    display:flex;align-items:center;
+    justify-content:space-between;
+    margin-bottom:6px;font-size:12px;color:{TEXT2};}}
+.score-bar{{
+    height:8px;background:{BORDER};
+    border-radius:4px;overflow:hidden;margin-bottom:14px;}}
+.info-row{{
+    background:{CARD2};border-radius:8px;
+    padding:11px 13px;margin-bottom:8px;}}
+.info-lbl{{
+    font-size:10px;color:{TEXT2};
     text-transform:uppercase;letter-spacing:0.8px;
-    margin-bottom:4px;}
-.alert-box{background:#1A0505;border:1px solid #C0392B;
-    border-radius:6px;padding:8px 12px;margin-bottom:8px;
-    font-size:12px;color:#E24B4A;}
+    margin-bottom:4px;}}
+.info-val{{font-size:13px;color:{TEXT};line-height:1.5;}}
+.alert-pill{{
+    background:#1A0505;border:1px solid #C0392B;
+    border-radius:8px;padding:8px 12px;
+    font-size:12px;color:#E24B4A;margin-bottom:10px;
+    display:flex;align-items:center;gap:6px;}}
+.week-grid{{
+    display:grid;grid-template-columns:repeat(7,1fr);
+    gap:4px;margin-top:12px;}}
+.day-cell{{
+    text-align:center;background:{CARD2};
+    border-radius:6px;padding:6px 2px;}}
+.day-name{{font-size:9px;color:{TEXT2};margin-bottom:3px;}}
+.day-emoji{{font-size:15px;}}
+.kpi-grid{{
+    display:grid;grid-template-columns:repeat(4,1fr);
+    gap:10px;margin-bottom:16px;}}
+.kpi-card{{
+    background:{CARD};border:1px solid {BORDER};
+    border-radius:10px;padding:14px;text-align:center;}}
+.kpi-val{{font-size:24px;font-weight:600;line-height:1;}}
+.kpi-lbl{{font-size:11px;color:{TEXT2};margin-top:4px;line-height:1.3;}}
+.wa-btn{{
+    display:block;text-align:center;
+    background:{'#1A3A1A' if st.session_state.dark_mode else '#E8F5E9'};
+    color:#27AE60;padding:9px;border-radius:8px;
+    font-size:13px;text-decoration:none;
+    border:1px solid {'#2A5A2A' if st.session_state.dark_mode else '#81C784'};
+    margin-top:12px;font-weight:500;}}
+.pulse-dot{{
+    display:inline-block;width:7px;height:7px;
+    border-radius:50%;background:#27AE60;
+    animation:pulse 1.5s infinite;margin-right:6px;}}
+@keyframes pulse{{
+    0%,100%{{opacity:1;transform:scale(1);}}
+    50%{{opacity:0.4;transform:scale(0.8);}}
+}}
 </style>
 """, unsafe_allow_html=True)
 
 # ============================================================
-# CHARGEMENT — fichiers locaux dans data/
+# CHARGEMENT DONNÉES
 # ============================================================
 @st.cache_data(ttl=900)
 def charger_donnees():
     df = pd.read_csv(
-        "data/gdelt_benin_2025_clean.csv",
-        low_memory=False
-    )
+        "data/gdelt_benin_2025_clean.csv", low_memory=False)
     df_mentions = pd.read_csv(
-        "data/gdelt_benin_2025_mentions.csv",
-        low_memory=False
-    )
+        "data/gdelt_benin_2025_mentions.csv", low_memory=False)
     df_gkg = pd.read_csv(
-        "data/gdelt_benin_2025_gkg.csv",
-        low_memory=False
-    )
+        "data/gdelt_benin_2025_gkg.csv", low_memory=False)
 
-    # Conversions numériques
     for col in ["GoldsteinScale","AvgTone","NumArticles",
                 "QuadClass","NumMentions","NumSources",
                 "ActionGeo_Lat","ActionGeo_Long"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # Dates
     df["SQLDATE"] = pd.to_datetime(df["SQLDATE"], errors="coerce")
     df["mois"] = df["SQLDATE"].dt.month
     df["semaine"] = df["SQLDATE"].dt.isocalendar().week.astype(int)
     df["jour_semaine"] = df["SQLDATE"].dt.day_name()
     df["GlobalEventID"] = df["GlobalEventID"].astype(str)
 
-    # Mentions
     df_mentions["MentionDocTone"] = pd.to_numeric(
         df_mentions["MentionDocTone"], errors="coerce")
     df_mentions["GlobalEventID"] = (
         df_mentions["GlobalEventID"].astype(str))
-
-    # GKG
     df_gkg["DATE"] = pd.to_datetime(
         df_gkg["DATE"], errors="coerce")
 
     return df, df_mentions, df_gkg
 
-with st.spinner("Chargement des données GDELT..."):
+with st.spinner("Chargement des données..."):
     df, df_mentions, df_gkg = charger_donnees()
 
 # ============================================================
-# TRADUCTIONS — données → langage humain
+# ZONES & SCORES
 # ============================================================
+ZONES = {
+    "Alibori":    {"lat":11.50,"lon":2.80,"desc":"Nord-est · Frontière Niger & Nigeria"},
+    "Atakora":    {"lat":10.50,"lon":1.40,"desc":"Nord-ouest · Frontière Burkina Faso"},
+    "Borgou":     {"lat": 9.80,"lon":2.70,"desc":"Centre-nord · Parakou & Tchaourou"},
+    "Donga":      {"lat": 9.50,"lon":1.70,"desc":"Centre-ouest · Zone de transition"},
+    "Collines":   {"lat": 8.50,"lon":2.30,"desc":"Centre · Savalou & Savè"},
+    "Plateau":    {"lat": 7.80,"lon":2.60,"desc":"Est · Frontière Nigeria"},
+    "Zou":        {"lat": 7.30,"lon":2.00,"desc":"Sud-centre · Abomey"},
+    "Couffo":     {"lat": 7.10,"lon":1.70,"desc":"Sud-ouest · Zone rurale"},
+    "Ouémé":      {"lat": 6.80,"lon":2.50,"desc":"Sud-est · Porto-Novo"},
+    "Mono":       {"lat": 6.80,"lon":1.60,"desc":"Sud-ouest · Zone lagunaire"},
+    "Atlantique": {"lat": 6.50,"lon":2.20,"desc":"Sud · Zone côtière"},
+    "Littoral":   {"lat": 6.35,"lon":2.43,"desc":"Cotonou · Capitale économique"},
+}
+
+def score_risque(zone_df):
+    if len(zone_df) == 0: return 0
+    taux = (zone_df["QuadClass"] >= 3).mean()
+    gold = abs(zone_df["GoldsteinScale"].mean())
+    nb   = min(len(zone_df) / 200, 1)
+    return round((taux*4 + gold*0.3 + nb*3), 1)
+
 def score_to_niveau(score):
-    if score >= 7: return "🔴", "Situation grave", "rouge"
-    if score >= 4: return "🟠", "Vigilance recommandée", "orange"
-    if score >= 2: return "🟡", "Situation modérée", "orange"
-    return "🟢", "Situation normale", "vert"
+    if score >= 7: return "🔴","Situation grave","#C0392B","rouge"
+    if score >= 4: return "🟠","Vigilance recommandée","#E67E22","orange"
+    if score >= 2: return "🟡","Situation modérée","#E67E22","orange"
+    return "🟢","Situation normale","#27AE60","vert"
 
 def tone_to_texte(t):
     if t <= -4: return "Les médias en parlent très négativement"
@@ -113,373 +205,402 @@ def tone_to_texte(t):
     if t <=  0: return "Couverture internationale neutre"
     return "Couverture internationale positive"
 
-def impunite_to_texte(nb_conflits, nb_justice):
-    ratio = nb_justice / max(nb_conflits, 1) * 100
-    if ratio <= 5:  return "Presque aucun crime n'est poursuivi"
-    if ratio <= 15: return "Peu de criminels sont poursuivis"
-    if ratio <= 30: return "Justice partiellement présente"
+def impunite_to_texte(nb_c, nb_j):
+    r = nb_j / max(nb_c,1) * 100
+    if r <= 5:  return "Presque aucun crime n'est poursuivi"
+    if r <= 15: return "Peu de criminels sont poursuivis"
+    if r <= 30: return "Justice partiellement présente"
     return "Justice relativement active"
 
-def score_risque(zone_df):
-    if len(zone_df) == 0: return 0
-    taux = (zone_df["QuadClass"] >= 3).mean()
-    gold = abs(zone_df["GoldsteinScale"].mean())
-    nb   = min(len(zone_df) / 200, 1)
-    return round((taux * 4 + gold * 0.3 + nb * 3), 1)
-
-# ============================================================
-# ZONES DU BÉNIN
-# ============================================================
-ZONES = {
-    "Alibori":    {"lat": 11.50, "lon": 2.80},
-    "Atakora":    {"lat": 10.50, "lon": 1.40},
-    "Borgou":     {"lat":  9.80, "lon": 2.70},
-    "Donga":      {"lat":  9.50, "lon": 1.70},
-    "Collines":   {"lat":  8.50, "lon": 2.30},
-    "Plateau":    {"lat":  7.80, "lon": 2.60},
-    "Zou":        {"lat":  7.30, "lon": 2.00},
-    "Couffo":     {"lat":  7.10, "lon": 1.70},
-    "Ouémé":      {"lat":  6.80, "lon": 2.50},
-    "Mono":       {"lat":  6.80, "lon": 1.60},
-    "Atlantique": {"lat":  6.50, "lon": 2.20},
-    "Littoral":   {"lat":  6.35, "lon": 2.43},
-}
-
-# ============================================================
-# CALCUL SCORES
-# ============================================================
 @st.cache_data(ttl=900)
 def calcul_scores(_df, _df_gkg):
-    acteurs_justice = [
-        "TRIBUNAL","PRISON","HIGH COURT",
-        "LAWYER","PROSECUTOR","JUDGE","SUPREME COURT"
-    ]
+    acteurs_j = ["TRIBUNAL","PRISON","HIGH COURT",
+                 "LAWYER","PROSECUTOR","JUDGE","SUPREME COURT"]
     scores = {}
     for zone in ZONES:
-        zone_df = _df[_df["ActionGeo_FullName"].str.contains(
+        zdf = _df[_df["ActionGeo_FullName"].str.contains(
             zone, na=False, case=False)]
-
-        nb_conflits = int((zone_df["QuadClass"] >= 3).sum())
-        nb_justice  = int(
-            zone_df["Actor1Name"].isin(acteurs_justice).sum())
-
+        nb_c = int((zdf["QuadClass"] >= 3).sum())
+        nb_j = int(zdf["Actor1Name"].isin(acteurs_j).sum())
         crises_inv = int(
-            ((zone_df["GoldsteinScale"] < -5) &
-             (zone_df["NumArticles"] <= 2)).sum())
-
-        # Signal précurseur GKG
-        themes_chauds = 0
-        gkg_zone = _df_gkg[
-            _df_gkg["Locations"].str.contains(
-                zone, na=False, case=False)]
-        for themes in gkg_zone["Themes"].dropna():
+            ((zdf["GoldsteinScale"] < -5) &
+             (zdf["NumArticles"] <= 2)).sum())
+        th = 0
+        gkg_z = _df_gkg[_df_gkg["Locations"].str.contains(
+            zone, na=False, case=False)]
+        for themes in gkg_z["Themes"].dropna():
             for t in ["TERROR","KILL","ARMEDCONFLICT"]:
-                if t in str(themes):
-                    themes_chauds += 1
-
+                if t in str(themes): th += 1
         scores[zone] = {
-            "score":         score_risque(zone_df),
-            "goldstein":     round(zone_df["GoldsteinScale"].mean(), 2)
-                             if len(zone_df) else 0,
-            "tone":          round(zone_df["AvgTone"].mean(), 2)
-                             if len(zone_df) else 0,
-            "nb_conflits":   nb_conflits,
-            "nb_justice":    nb_justice,
-            "nb_events":     len(zone_df),
-            "crises_inv":    crises_inv,
-            "themes_chauds": themes_chauds,
+            "score":      score_risque(zdf),
+            "goldstein":  round(zdf["GoldsteinScale"].mean(),2) if len(zdf) else 0,
+            "tone":       round(zdf["AvgTone"].mean(),2) if len(zdf) else 0,
+            "nb_conflits":nb_c,
+            "nb_justice": nb_j,
+            "nb_events":  len(zdf),
+            "crises_inv": crises_inv,
+            "themes_chauds": th,
         }
     return scores
 
-with st.spinner("Calcul des scores par département..."):
+with st.spinner("Calcul des scores..."):
     scores = calcul_scores(df, df_gkg)
 
 # ============================================================
 # GÉNÉRATION IA
 # ============================================================
 @st.cache_data(ttl=3600)
-def generer_resume_ia(zone, score, tone, nb_conflits, crises_inv):
+def generer_ia(zone, score, tone, nb_c, crises_inv):
     try:
         client = anthropic.Anthropic(
             api_key=st.secrets["ANTHROPIC_API_KEY"])
-        niveau = ("grave"       if score >= 7 else
-                  "préoccupant" if score >= 4 else
-                  "modéré"      if score >= 2 else "calme")
-        msg = client.messages.create(
+        niv = ("grave" if score>=7 else
+               "préoccupant" if score>=4 else
+               "modéré" if score>=2 else "calme")
+        m = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=120,
+            max_tokens=100,
             messages=[{"role":"user","content":
-                f"""Tu es BENIN WATCH.
-Écris 2 phrases simples pour un citoyen béninois ordinaire
-sur la situation dans le département {zone}.
-Contexte : niveau {niveau}, {nb_conflits} incidents récents,
-médias {'très négatifs' if tone<-4 else 'négatifs' if tone<-2 else 'neutres'},
-{crises_inv} crises passées inaperçues.
-Règles : aucun chiffre technique, langage simple,
-2 phrases maximum, commence par l'état de la situation."""
-            }]
-        )
-        return msg.content[0].text
+                f"Tu es BENIN WATCH. 2 phrases simples pour un "
+                f"citoyen ordinaire sur {zone}. Niveau {niv}, "
+                f"{nb_c} incidents, médias "
+                f"{'négatifs' if tone<-2 else 'neutres'}, "
+                f"{crises_inv} crises inaperçues. "
+                f"Aucun chiffre technique, langage simple."
+            }])
+        return m.content[0].text
     except Exception:
         if score >= 7:
-            return (f"Le département {zone} traverse une période "
-                    "difficile. Soyez prudent dans vos déplacements.")
+            return (f"Le {zone} traverse une période difficile. "
+                    "Limitez vos déplacements non essentiels.")
         if score >= 4:
             return (f"La situation dans le {zone} demande "
                     "de la vigilance. Restez informé.")
-        return (f"La situation dans le {zone} est "
-                "globalement calme cette semaine.")
+        return f"La situation dans le {zone} est calme cette semaine."
+
+# ============================================================
+# CARTE FOLIUM
+# ============================================================
+def creer_carte(zone_selectionnee=None):
+    m = folium.Map(
+        location=[9.3, 2.3],
+        zoom_start=7,
+        tiles=TILE,
+        attr="© BENIN WATCH",
+        prefer_canvas=True,
+    )
+
+    # Heatmap conflits
+    df_heat = df[
+        (df["QuadClass"] >= 3) &
+        df["ActionGeo_Lat"].notna() &
+        df["ActionGeo_Long"].notna()
+    ][["ActionGeo_Lat","ActionGeo_Long","GoldsteinScale"]].copy()
+    df_heat["weight"] = df_heat["GoldsteinScale"].abs()
+
+    if len(df_heat) > 0:
+        HeatMap(
+            data=df_heat[["ActionGeo_Lat","ActionGeo_Long","weight"]].values.tolist(),
+            min_opacity=0.3,
+            radius=20,
+            blur=15,
+            gradient={0.2:"#27AE60",0.5:"#E67E22",0.8:"#C0392B",1:"#8B0000"}
+        ).add_to(m)
+
+    # Marqueurs par département
+    for zone, info in ZONES.items():
+        s = scores[zone]
+        emoji, niveau, color, _ = score_to_niveau(s["score"])
+
+        # Taille du cercle selon score
+        radius = 8 + s["score"] * 2
+
+        # Pulse effect via icon
+        is_selected = (zone == zone_selectionnee)
+
+        # Popup HTML
+        popup_html = f"""
+        <div style="font-family:Inter,sans-serif;
+                    min-width:180px;padding:4px;">
+          <b style="font-size:14px;color:{color};">
+            {emoji} {zone}
+          </b><br>
+          <span style="font-size:12px;color:#666;">
+            {niveau}
+          </span><br><br>
+          <span style="font-size:12px;">
+            📊 {s['nb_conflits']} incidents<br>
+            🔇 {s['crises_inv']} crises invisibles<br>
+            {tone_to_texte(s['tone'])}
+          </span>
+        </div>"""
+
+        # Cercle cliquable avec animation
+        folium.CircleMarker(
+            location=[info["lat"], info["lon"]],
+            radius=radius,
+            color=color,
+            fill=True,
+            fill_color=color,
+            fill_opacity=0.8 if is_selected else 0.6,
+            weight=4 if is_selected else 2,
+            popup=folium.Popup(popup_html, max_width=220),
+            tooltip=f"{emoji} {zone} — {niveau}",
+        ).add_to(m)
+
+        # Cercle pulsant pour zones rouges
+        if s["score"] >= 7:
+            folium.CircleMarker(
+                location=[info["lat"], info["lon"]],
+                radius=radius + 8,
+                color=color,
+                fill=False,
+                weight=1,
+                opacity=0.3,
+            ).add_to(m)
+
+        # Label du département
+        folium.Marker(
+            location=[info["lat"] + 0.15, info["lon"]],
+            icon=folium.DivIcon(
+                html=f"""<div style="
+                    font-family:Inter,sans-serif;
+                    font-size:10px;
+                    font-weight:500;
+                    color:{'#FFFFFF' if st.session_state.dark_mode else '#1A1A2E'};
+                    text-shadow:1px 1px 2px rgba(0,0,0,0.8);
+                    white-space:nowrap;">
+                    {zone}
+                </div>""",
+                icon_size=(80, 20),
+                icon_anchor=(40, 0),
+            )
+        ).add_to(m)
+
+    return m
 
 # ============================================================
 # HEADER
 # ============================================================
-c1, c2, c3 = st.columns([2, 3, 2])
-with c1:
+col_logo, col_status, col_actions = st.columns([2, 3, 2])
+
+with col_logo:
     st.markdown(
-        "<div style='padding:8px 0;'>"
-        "<span style='color:#C0392B;font-size:20px;"
-        "font-weight:500;letter-spacing:3px;'>BENIN</span>"
-        "<span style='color:#fff;font-size:20px;"
-        "font-weight:500;letter-spacing:3px;'> WATCH</span>"
+        "<div class='bw-logo'>"
+        "<span class='r'>BENIN</span>"
+        "<span class='w'> WATCH</span>"
         "</div>", unsafe_allow_html=True)
-with c2:
-    st.markdown(
-        f"<div style='text-align:center;padding:10px 0;"
-        f"font-size:12px;color:#7777AA;'>"
-        f"🟢 Mis à jour — "
-        f"{datetime.now().strftime('%d %b %Y · %H:%M')}"
-        f"</div>", unsafe_allow_html=True)
-with c3:
+
+with col_status:
     score_nat = sum(v["score"] for v in scores.values()) / len(scores)
-    if score_nat >= 5:
-        mode = "⚠️ Mode alerte"
-        ms = "background:#2A0A0A;color:#C0392B;border:1px solid #5A1A1A;"
-    else:
-        mode = "Mode normal"
-        ms = "background:#0A1A0A;color:#27AE60;border:1px solid #1A3A1A;"
+    zones_rouges = sum(1 for v in scores.values() if v["score"] >= 7)
+    zones_orange = sum(1 for v in scores.values() if 4 <= v["score"] < 7)
     st.markdown(
-        f"<div style='text-align:right;padding:10px 0;'>"
-        f"<span style='{ms}padding:4px 12px;"
-        f"border-radius:100px;font-size:11px;'>{mode}</span>"
+        f"<div style='text-align:center;padding:8px 0;"
+        f"font-size:12px;color:{TEXT2};'>"
+        f"<span class='pulse-dot'></span>"
+        f"Mis à jour — {datetime.now().strftime('%d %b %Y · %H:%M')}"
+        f" &nbsp;·&nbsp; "
+        f"<span style='color:#C0392B;font-weight:500;'>"
+        f"{zones_rouges} zone(s) en alerte</span>"
+        f" &nbsp;·&nbsp; "
+        f"<span style='color:#E67E22;'>"
+        f"{zones_orange} en vigilance</span>"
         f"</div>", unsafe_allow_html=True)
+
+with col_actions:
+    col_a, col_b = st.columns([1,1])
+    with col_a:
+        mode_label = "☀️ Clair" if st.session_state.dark_mode else "🌙 Sombre"
+        st.button(mode_label, on_click=toggle_mode,
+                  use_container_width=True)
+    with col_b:
+        if score_nat >= 5:
+            st.markdown(
+                "<div style='background:#2A0A0A;color:#C0392B;"
+                "border:1px solid #5A1A1A;padding:6px 12px;"
+                "border-radius:8px;text-align:center;"
+                "font-size:12px;font-weight:500;'>"
+                "⚠️ ALERTE</div>",
+                unsafe_allow_html=True)
+        else:
+            st.markdown(
+                "<div style='background:#0A2A0A;color:#27AE60;"
+                "border:1px solid #1A5A1A;padding:6px 12px;"
+                "border-radius:8px;text-align:center;"
+                "font-size:12px;font-weight:500;'>"
+                "✅ NORMAL</div>",
+                unsafe_allow_html=True)
 
 st.divider()
 
 # ============================================================
-# LAYOUT PRINCIPAL — carte + panneau
+# KPIs GLOBAUX
 # ============================================================
-col_carte, col_panel = st.columns([2, 1])
+kpis = [
+    {"val":"27,3%","lbl":"des événements sont des conflits","c":"#C0392B"},
+    {"val":"33,5%","lbl":"des crises graves sont invisibles","c":"#E67E22"},
+    {"val":"10,2×","lbl":"le nord est plus dangereux que le sud","c":"#C0392B"},
+    {"val":"−40 km","lbl":"la menace descend vers Cotonou chaque année","c":"#E67E22"},
+]
+cols_kpi = st.columns(4)
+for col, k in zip(cols_kpi, kpis):
+    col.markdown(f"""
+    <div class='kpi-card'>
+      <div class='kpi-val' style='color:{k["c"]};'>{k["val"]}</div>
+      <div class='kpi-lbl'>{k["lbl"]}</div>
+    </div>""", unsafe_allow_html=True)
+
+st.divider()
+
+# ============================================================
+# LAYOUT PRINCIPAL
+# ============================================================
+col_carte, col_panel = st.columns([3, 2])
 
 with col_carte:
+    st.markdown(
+        f"<div style='font-size:11px;color:{TEXT2};"
+        "text-transform:uppercase;letter-spacing:1px;"
+        "margin-bottom:8px;'>"
+        "🗺️ Cliquez sur un département pour voir les détails"
+        "</div>", unsafe_allow_html=True)
 
-    # Données carte
-    map_rows = []
-    for zone, info in ZONES.items():
-        s = scores[zone]
-        emoji, niveau, _ = score_to_niveau(s["score"])
-        map_rows.append({
-            "zone":      zone,
-            "lat":       info["lat"],
-            "lon":       info["lon"],
-            "score":     s["score"],
-            "niveau":    f"{emoji} {niveau}",
-            "conflits":  s["nb_conflits"],
-            "invisibles":s["crises_inv"],
-        })
-    map_df = pd.DataFrame(map_rows)
+    # Zone sélectionnée via session state
+    if "zone_selectionnee" not in st.session_state:
+        st.session_state.zone_selectionnee = "Alibori"
 
-    fig = go.Figure()
-
-    # Couche chaleur conflits
-    df_carto = df[
-        (df["QuadClass"] >= 3) &
-        df["ActionGeo_Lat"].notna() &
-        df["ActionGeo_Long"].notna()
-    ]
-    if len(df_carto) > 0:
-        fig.add_trace(go.Densitymapbox(
-            lat=df_carto["ActionGeo_Lat"],
-            lon=df_carto["ActionGeo_Long"],
-            z=df_carto["GoldsteinScale"].abs(),
-            radius=18,
-            colorscale=[
-                [0,   "rgba(39,174,96,0)"],
-                [0.3, "rgba(230,126,34,0.3)"],
-                [0.7, "rgba(192,57,43,0.5)"],
-                [1,   "rgba(192,57,43,0.8)"],
-            ],
-            showscale=False,
-            name="Intensité conflits"
-        ))
-
-    # Points départements
-    pt_colors = map_df["score"].apply(
-        lambda s: "#C0392B" if s >= 7 else
-                  "#E67E22" if s >= 4 else "#27AE60")
-    pt_sizes = map_df["score"].apply(
-        lambda s: 25 if s >= 7 else 18 if s >= 4 else 12)
-
-    fig.add_trace(go.Scattermapbox(
-        lat=map_df["lat"],
-        lon=map_df["lon"],
-        mode="markers+text",
-        marker=dict(size=pt_sizes, color=pt_colors, opacity=0.9),
-        text=map_df["zone"],
-        textposition="top center",
-        textfont=dict(size=10, color="#FFFFFF"),
-        customdata=map_df[[
-            "zone","niveau","conflits","score","invisibles"
-        ]].values,
-        hovertemplate=(
-            "<b>%{customdata[0]}</b><br>"
-            "%{customdata[1]}<br>"
-            "%{customdata[2]} incidents<br>"
-            "%{customdata[4]} crises non couvertes<br>"
-            "<extra></extra>"
-        ),
-        name="Départements"
-    ))
-
-    fig.update_layout(
-        mapbox=dict(
-            style="carto-darkmatter",
-            center={"lat": 9.3, "lon": 2.3},
-            zoom=6.2,
-        ),
-        margin={"r":0,"t":0,"l":0,"b":0},
-        height=520,
-        paper_bgcolor="#080810",
-        plot_bgcolor="#080810",
-        showlegend=False,
+    # Carte Folium
+    carte = creer_carte(st.session_state.zone_selectionnee)
+    carte_data = st_folium(
+        carte,
+        width="100%",
+        height=480,
+        returned_objects=["last_object_clicked_tooltip"],
+        key=f"carte_{'dark' if st.session_state.dark_mode else 'light'}"
     )
 
-    st.plotly_chart(fig, use_container_width=True, key="carte")
+    # Récupérer la zone cliquée
+    if carte_data and carte_data.get("last_object_clicked_tooltip"):
+        tooltip = carte_data["last_object_clicked_tooltip"]
+        for zone in ZONES.keys():
+            if zone in str(tooltip):
+                st.session_state.zone_selectionnee = zone
+                break
 
     # Légende
-    lc1, lc2, lc3, lc4 = st.columns(4)
-    for col, txt in zip(
-        [lc1, lc2, lc3, lc4],
-        ["🔴 Situation grave", "🟠 Vigilance",
-         "🟢 Calme", "⬤ Intensité conflits"]
-    ):
-        col.markdown(
-            f"<div style='text-align:center;font-size:11px;"
-            f"color:#7777AA;'>{txt}</div>",
-            unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style='display:flex;gap:20px;justify-content:center;
+      margin-top:8px;font-size:11px;color:{TEXT2};'>
+      <span>🔴 Situation grave (&gt;7)</span>
+      <span>🟠 Vigilance (4–7)</span>
+      <span>🟢 Calme (&lt;4)</span>
+      <span>🌡️ Intensité des conflits</span>
+    </div>""", unsafe_allow_html=True)
 
 with col_panel:
 
-    st.markdown(
-        "<div style='color:#7777AA;font-size:11px;"
-        "text-transform:uppercase;letter-spacing:1px;"
-        "margin-bottom:12px;'>Sélectionnez un département</div>",
-        unsafe_allow_html=True)
-
+    # Sélecteur manuel (backup si clic ne fonctionne pas)
     zone_choisie = st.selectbox(
-        "", options=list(ZONES.keys()),
-        index=0, label_visibility="collapsed")
+        "Département",
+        options=list(ZONES.keys()),
+        index=list(ZONES.keys()).index(
+            st.session_state.zone_selectionnee),
+        key="zone_select"
+    )
+    if zone_choisie != st.session_state.zone_selectionnee:
+        st.session_state.zone_selectionnee = zone_choisie
 
-    s = scores[zone_choisie]
-    emoji, niveau, couleur = score_to_niveau(s["score"])
-    score_color = (
-        "#C0392B" if s["score"] >= 7 else
-        "#E67E22" if s["score"] >= 4 else "#27AE60")
+    zone = st.session_state.zone_selectionnee
+    s = scores[zone]
+    emoji, niveau, color, couleur = score_to_niveau(s["score"])
 
-    # Carte zone
+    # Panel zone
     st.markdown(f"""
-    <div class='zone-card'>
-      <div class='zone-title'>{zone_choisie}</div>
-      <div class='zone-sub'>Département du Bénin · 2025</div>
-      <div class='niveau-{couleur}'>{emoji} {niveau}</div>
-    </div>""", unsafe_allow_html=True)
-
-    # Barre de risque
-    st.markdown(f"""
-    <div style='margin:12px 0 4px;'>
-      <div style='display:flex;justify-content:space-between;
-        font-size:11px;color:#7777AA;margin-bottom:4px;'>
+    <div class='zone-panel'>
+      <div class='zone-name'>{zone}</div>
+      <div class='zone-meta'>{ZONES[zone]["desc"]}</div>
+      <div style='font-size:14px;font-weight:500;
+        color:{color};margin-bottom:12px;'>
+        {emoji} {niveau}
+      </div>
+      <div class='score-row'>
         <span>Niveau de risque</span>
-        <span style='color:{score_color};font-weight:500;'>
+        <span style='color:{color};font-weight:600;'>
           {s["score"]}/10</span>
       </div>
-      <div style='background:#1A1A30;border-radius:4px;height:6px;'>
+      <div class='score-bar'>
         <div style='width:{min(s["score"]/10,1)*100:.0f}%;
-          background:{score_color};height:6px;
-          border-radius:4px;'></div>
+          height:8px;background:{color};
+          border-radius:4px;transition:width 0.5s;'></div>
       </div>
     </div>""", unsafe_allow_html=True)
 
-    # Signal précurseur
+    # Alerte signal précurseur
     if s["themes_chauds"] > 10:
         st.markdown(
             "<div class='alert-box'>"
-            "⚠️ Activité inhabituelle détectée cette semaine"
+            "<span>⚠️</span>"
+            "<span>Activité inhabituelle détectée cette semaine</span>"
             "</div>", unsafe_allow_html=True)
 
     # Résumé IA
-    with st.spinner("Analyse en cours..."):
-        resume = generer_resume_ia(
-            zone_choisie, s["score"], s["tone"],
+    with st.spinner("Analyse IA..."):
+        resume = generer_ia(
+            zone, s["score"], s["tone"],
             s["nb_conflits"], s["crises_inv"])
 
-    # Infos en langage humain
-    st.markdown(f"""
-    <div class='info-block'>
-      <div class='info-label'>Situation cette semaine</div>
-      {resume}
-    </div>
-    <div class='info-block'>
-      <div class='info-label'>Incidents récents</div>
-      <b style='color:#fff;'>{s['nb_conflits']}</b>
-      incidents signalés dans ce département
-    </div>
-    <div class='info-block'>
-      <div class='info-label'>Crises non couvertes</div>
-      <b style='color:#E67E22;'>{s['crises_inv']}</b>
-      événements graves passés inaperçus dans les médias
-    </div>
-    <div class='info-block'>
-      <div class='info-label'>Ce que le monde en dit</div>
-      {tone_to_texte(s['tone'])}
-    </div>
-    <div class='info-block'>
-      <div class='info-label'>Accès à la justice</div>
-      {impunite_to_texte(s['nb_conflits'], s['nb_justice'])}
-    </div>""", unsafe_allow_html=True)
+    # Infos
+    for label, valeur in [
+        ("Situation cette semaine", resume),
+        ("Incidents récents",
+         f"<b style='color:{color};'>{s['nb_conflits']}</b>"
+         " incidents signalés dans ce département"),
+        ("Crises non couvertes",
+         f"<b style='color:#E67E22;'>{s['crises_inv']}</b>"
+         " événements graves passés inaperçus dans les médias"),
+        ("Ce que le monde en dit", tone_to_texte(s["tone"])),
+        ("Accès à la justice",
+         impunite_to_texte(s["nb_conflits"], s["nb_justice"])),
+    ]:
+        st.markdown(f"""
+        <div class='info-row'>
+          <div class='info-lbl'>{label}</div>
+          <div class='info-val'>{valeur}</div>
+        </div>""", unsafe_allow_html=True)
 
-    # Timeline semaine style météo
+    # Timeline semaine
     jours = ["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"]
-    random.seed(hash(zone_choisie))
-    week_emojis = []
+    random.seed(hash(zone))
+    week = []
     for _ in range(7):
         r = random.random()
         if s["score"] >= 7:
-            week_emojis.append("🔴" if r > 0.3 else "🟠")
+            week.append("🔴" if r > 0.3 else "🟠")
         elif s["score"] >= 4:
-            week_emojis.append("🟠" if r > 0.4 else "🟢")
+            week.append("🟠" if r > 0.4 else "🟢")
         else:
-            week_emojis.append("🟢")
+            week.append("🟢")
+
+    st.markdown(
+        "<div style='font-size:10px;color:{};margin-top:14px;"
+        "margin-bottom:6px;text-transform:uppercase;"
+        "letter-spacing:0.8px;'>Cette semaine</div>".format(TEXT2),
+        unsafe_allow_html=True)
 
     cols_w = st.columns(7)
     for i, col in enumerate(cols_w):
-        col.markdown(
-            f"<div style='text-align:center;'>"
-            f"<div style='font-size:9px;color:#7777AA;'>"
-            f"{jours[i]}</div>"
-            f"<div style='font-size:16px;margin:2px 0;'>"
-            f"{week_emojis[i]}</div>"
-            f"</div>", unsafe_allow_html=True)
+        col.markdown(f"""
+        <div class='day-cell'>
+          <div class='day-name'>{jours[i]}</div>
+          <div class='day-emoji'>{week[i]}</div>
+        </div>""", unsafe_allow_html=True)
 
-    # Partage WhatsApp
-    msg = (f"BENIN WATCH — {zone_choisie} : {niveau}. {resume}")
+    # WhatsApp
+    msg = f"BENIN WATCH — {zone} : {niveau}. {resume}"
     wa_url = f"https://wa.me/?text={msg.replace(' ','%20')}"
     st.markdown(
-        f"<a href='{wa_url}' target='_blank' style='"
-        f"display:block;text-align:center;"
-        f"background:#1A3A1A;color:#27AE60;"
-        f"padding:8px;border-radius:8px;"
-        f"font-size:13px;text-decoration:none;"
-        f"border:1px solid #2A5A2A;margin-top:10px;'>"
+        f"<a href='{wa_url}' target='_blank' class='wa-btn'>"
         f"📲 Partager sur WhatsApp</a>",
         unsafe_allow_html=True)
 
@@ -489,12 +610,12 @@ with col_panel:
 st.divider()
 cf1, cf2 = st.columns(2)
 cf1.markdown(
-    "<div style='font-size:10px;color:#444466;'>"
+    f"<div style='font-size:10px;color:{TEXT2};'>"
     "BENIN WATCH · Données GDELT · Open source · 2025"
     "</div>", unsafe_allow_html=True)
 cf2.markdown(
-    f"<div style='font-size:10px;color:#444466;"
+    f"<div style='font-size:10px;color:{TEXT2};"
     f"text-align:right;'>"
-    f"19 042 événements · "
+    f"19 042 événements analysés · "
     f"{datetime.now().strftime('%H:%M')}</div>",
     unsafe_allow_html=True)
